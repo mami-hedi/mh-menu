@@ -1,0 +1,9 @@
+# Les menus publics (/r/...) ne sont pas indexés par défaut (balise noindex) ; l'espace privé n'a rien à faire dans un moteur de recherche.
+User-agent: *
+Disallow: /dashboard
+Disallow: /admin
+Disallow: /connexion
+Disallow: /inscription
+Disallow: /mot-de-passe-oublie
+Disallow: /reinitialiser-mot-de-passe
+Allow: /

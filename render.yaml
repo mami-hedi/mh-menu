@@ -1,0 +1,37 @@
+# Blueprint Render — backend MH Menu (API Express).
+# Le frontend se déploie séparément sur Vercel (voir docs/DEPLOY.md).
+services:
+  - type: web
+    name: mh-menu-api
+    runtime: node
+    region: frankfurt
+    rootDir: backend
+    buildCommand: npm ci --omit=dev
+    # Les migrations sont idempotentes : elles s'exécutent à chaque démarrage.
+    startCommand: npm run migrate && npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: 22
+      - key: TRIAL_DAYS
+        value: "3"
+      - key: DB_SSL
+        value: "true"
+      - key: DB_PORT
+        value: "4000"
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      # Secrets : à renseigner dans le tableau de bord Render (jamais dans Git).
+      - { key: CLIENT_URL, sync: false }
+      - { key: DB_HOST, sync: false }
+      - { key: DB_USER, sync: false }
+      - { key: DB_PASSWORD, sync: false }
+      - { key: DB_NAME, sync: false }
+      - { key: JWT_SECRET, sync: false }
+      - { key: RESEND_API_KEY, sync: false }
+      - { key: EMAIL_FROM, sync: false }
+      - { key: CLOUDINARY_CLOUD_NAME, sync: false }
+      - { key: CLOUDINARY_API_KEY, sync: false }
+      - { key: CLOUDINARY_API_SECRET, sync: false }
