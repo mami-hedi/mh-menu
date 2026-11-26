@@ -8,8 +8,9 @@ const PAGE_SIZE = 20;
 
 // Statut EFFECTIF d'un abonnement (même règle que getAccessState) ; le paramètre est l'instant courant fourni par Node
 const EFF = `CASE WHEN s.status IN ('trial','active') AND s.ends_at <= ? THEN 'expired' ELSE s.status END`;
-const LATEST_SUB = `s.id = (SELECT MAX(id) FROM subscriptions WHERE restaurant_id = r.id)`;
-const OWNER_JOIN = `LEFT JOIN users o ON o.id = (SELECT MIN(id) FROM users WHERE restaurant_id = r.id AND role = 'owner')`;
+// Compatible TiDB : pas de sous-requête dans une condition ON, on passe par des tables dérivées.
+const latestSubJoin = (type) => `${type} JOIN (SELECT restaurant_id, MAX(id) AS id FROM subscriptions GROUP BY restaurant_id) ls ON ls.restaurant_id = r.id ${type} JOIN subscriptions s ON s.id = ls.id`;
+const OWNER_JOIN = `LEFT JOIN (SELECT restaurant_id, MIN(id) AS id FROM users WHERE role = 'owner' AND restaurant_id IS NOT NULL GROUP BY restaurant_id) ow ON ow.restaurant_id = r.id LEFT JOIN users o ON o.id = ow.id`;
 
 const iso = (d) => (d ? new Date(d).toISOString() : null);
 const startOfMonth = (d = new Date()) => new Date(d.getFullYear(), d.getMonth(), 1);
@@ -17,9 +18,9 @@ const startOfMonth = (d = new Date()) => new Date(d.getFullYear(), d.getMonth(),
 export async function stats() {
   const now = new Date();
   const [byStatus, totals, expiring, revenue, monthly, tickets] = await Promise.all([
-    query(`SELECT ${EFF} AS st, COUNT(*) AS n FROM restaurants r JOIN subscriptions s ON ${LATEST_SUB} GROUP BY st`, [now]),
+    query(`SELECT ${EFF} AS st, COUNT(*) AS n FROM restaurants r ${latestSubJoin('')} GROUP BY st`, [now]),
     queryOne(`SELECT COUNT(*) AS total, SUM(status = 'suspended') AS suspended, SUM(created_at >= ?) AS new7, SUM(created_at >= ?) AS new30 FROM restaurants`, [new Date(+now - 7 * DAY), new Date(+now - 30 * DAY)]),
-    queryOne(`SELECT COUNT(*) AS n FROM restaurants r JOIN subscriptions s ON ${LATEST_SUB} WHERE s.status IN ('trial','active') AND s.ends_at > ? AND s.ends_at <= ?`, [now, new Date(+now + 3 * DAY)]),
+    queryOne(`SELECT COUNT(*) AS n FROM restaurants r ${latestSubJoin('')} WHERE s.status IN ('trial','active') AND s.ends_at > ? AND s.ends_at <= ?`, [now, new Date(+now + 3 * DAY)]),
     queryOne(`SELECT COALESCE(SUM(amount_dt), 0) AS total, COALESCE(SUM(CASE WHEN paid_at >= ? THEN amount_dt END), 0) AS month FROM subscription_payments`, [startOfMonth(now)]),
     query(`SELECT DATE_FORMAT(paid_at, '%Y-%m') AS ym, SUM(amount_dt) AS total FROM subscription_payments WHERE paid_at >= ? GROUP BY ym ORDER BY ym`, [new Date(now.getFullYear(), now.getMonth() - 5, 1)]),
     queryOne(`SELECT COUNT(*) AS n FROM support_tickets WHERE status IN ('open','in_progress')`),
@@ -63,7 +64,7 @@ export async function listRestaurants({ filter, q, page = 1 }) {
     where.push(`(r.name LIKE ? ESCAPE '\\\\' OR r.slug LIKE ? ESCAPE '\\\\' OR o.email LIKE ? ESCAPE '\\\\' OR o.name LIKE ? ESCAPE '\\\\')`);
     params.push(like, like, like, like);
   }
-  const from = `FROM restaurants r LEFT JOIN subscriptions s ON ${LATEST_SUB} LEFT JOIN subscription_plans p ON p.id = s.plan_id ${OWNER_JOIN} WHERE ${where.join(' AND ')}`;
+  const from = `FROM restaurants r ${latestSubJoin('LEFT')} LEFT JOIN subscription_plans p ON p.id = s.plan_id ${OWNER_JOIN} WHERE ${where.join(' AND ')}`;
   const total = Number((await queryOne(`SELECT COUNT(*) AS n ${from}`, params)).n);
   const rows = await query(
     `SELECT r.id, r.name, r.slug, r.status, r.created_at, s.ends_at, p.name AS plan_name, ${EFF} AS effective_status,
